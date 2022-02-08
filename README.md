@@ -2,7 +2,7 @@
 
 ## Access control project using RF communication between two MCUs
 
-## Youtube Video Demonstration of the system
+### Youtube Video Demonstration of the system
 [![Watch the video](https://img.youtube.com/vi/kYRVERmXKSE/0.jpg)](https://www.youtube.com/embed/kYRVERmXKSE) 
 
 ### Summary of Project: 
