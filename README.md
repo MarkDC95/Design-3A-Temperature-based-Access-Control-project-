@@ -1,7 +1,7 @@
 # Design-3A-Temperature-based-Access-Control-project-
 
-##Access control project using RF communication between two MCUs
-###Summary of Project: 
+## Access control project using RF communication between two MCUs
+### Summary of Project: 
 <p>This project was an access-controlled system that used temperature as the main restriction parameter to facilitate entry into the workplace while enforcing COVID protocols. It featured wireless communication between two Microcontroller units with one unit controlling servo motors for the physical gates and the other unit controlling the mode of access control and display. A sanitizer station was incorporated into the design using a pump as well as a manual and automatic mode for the system, a PIR sensor was used to detected if the user has based through the gates. A buzzer and Alert system were also used to alert to a user with a higher temperature.</p>
 
 <img src = "https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/blob/main/final%20flow%20diagram.svg" float="centre" width="1080" />
