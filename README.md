@@ -10,6 +10,12 @@
 
 <img src = "https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/blob/main/final%20flow%20diagram.svg" float="centre" width="1080" />
 
+## The code for the project can be found on these pages:
+
+[Control Centre Arduino MCU Arduino Code](https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/blob/main/Code%20for%20Control%20Centre)
+
+[Gate and Sensor Station MCU Arduino Code](https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/blob/main/Sensor%20Station%20and%20Gate%20Code)
+
 
 It was within my responsibilities for the project for the overall design, and functionality of ensuring the system was working together. The wireless communication, software, and synchronisation of the two programs of the system were within my list of responsibilities as well. It was with this project that I was able to develop my skills in C and C++, programming of wireless RF systems, analogue and digital electronics as well as well as glimpse into a deeper understanding of embedded systems when learning to understand how to configure the RF modules.  
 
@@ -19,5 +25,17 @@ It was within my responsibilities for the project for the overall design, and fu
 ## System Flow Chart to show the design process of the Sensor Station(Slave MCU)
 <img src = "https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/blob/main/Blank%20diagram.png" float="centre" width="1080" />
 
-Table showing state changes during each stage of the process
+## Table showing state changes during each stage of the process
 <img src = "https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/blob/main/Picture1.png" float="centre" width="1080" />
+
+## Circuit Schematic of Control Centre 
+<img src = "https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/blob/main/Picture5.png" float="centre" width="1080" />
+
+## Circuit Schematic of Sensor and Gate Station
+<img src = "https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/blob/main/Picture6.png" float="centre" width="1080" />
+
+## Simplified RF communication process
+<img src = "https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/blob/main/Picture3.png" float="centre" width="1080" />
+
+## Control System Model
+<img src = "https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/blob/main/Picture4.png" float="centre" width="1080" />
