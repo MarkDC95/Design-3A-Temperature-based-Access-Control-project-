@@ -1,0 +1,579 @@
+#include <Adafruit_MLX90614.h>          //Temperature sensor library 
+#include <Servo.h>                      //Library for Servo motors
+
+#include <SPI.h>                        //SPI communications 
+#include <nRF24L01.h>                   //Functions for nrf24 library
+#include <RF24.h>                       //Networking library
+
+#include <LiquidCrystal_I2C.h>          //LCD I2C library
+#include <Wire.h>                       //I2C for LCD 
+#include <printf.h>
+//***********************************************************************************
+// Node addresses
+const byte addresses[][6] = {"00001", "00002"};
+
+//************************************************************************************
+//Radio pins
+#define CE        48
+#define CSN       49
+
+//Servo pins
+#define G1        11                  //Gate 1 
+#define G2        13                  //Gate 2
+#define lock      12                  //Latch 
+
+//PIR pins
+#define pirPin    22
+
+//USS and Pump pins
+#define echoPin   30                    //USS
+#define trigPin   32                    //USS
+#define pump      34                    //Pump for dispensing sanitizer
+#define level     10                    //To turn level indicator on and off
+#define push      9
+
+//LEDs and BUZZER
+#define redLED    24
+#define greenLED  26
+#define buzzer    28
+//************************************************************************************
+
+//object instantiation
+RF24 radio(CE, CSN);
+LiquidCrystal_I2C lcd(0x27, 16, 2);               //LCD declaration
+Adafruit_MLX90614 mlx = Adafruit_MLX90614();      //mlx declaration, use object
+Servo servo1, servo2, servoLock;                  //servo objects for gate 1, gate 2 and latch
+
+//*************************************************************************************
+typedef struct
+{
+  int moO_state = 0;                            //mode buffer
+  int mo1_state = 0;                            //manual gate 1 buffer
+  int mo2_state = 0;                            //manual gate 2 buffer
+}
+Packet;                                         //manual override button buffer package
+Packet ButtonPack;
+
+typedef struct
+{
+  int gate1 = 0;
+  int gate2 = 0;
+}
+AutoGatePack;                                    //gate ON/OFF controller buffer package
+AutoGatePack GatePack;
+
+typedef struct
+{
+  int rawVal = 0;                                //temperature buffer package
+}
+TempPack;
+TempPack degreeCelPack;
+
+//*****************************************************************************
+int AutoG1_buf = 0;
+int AutoG2_buf = 0;
+int AutoManDetector = 1;
+
+float temp_val = 0;               //temperture buffer
+
+int pos = 0;                      //iterate through servo angles for gates
+int angle = 0;                    //iterate through servo angles for latch
+int long duration;                //store sound wave duration
+int distance;                     //distance between hand and sensor
+
+int  controlState = 0;
+int  slaveState = 0;
+
+int gate_mode_AM = 0 ;
+int gate_state_1 = 0 ;
+int gate_state_2 = 0 ;
+
+int LastgateOne  = LOW ;
+int LastgateTwo  = LOW ;
+int pirState = LOW;
+int systemCheck = 0;
+float gap = 0 ;
+
+//****************************************************************************************
+void setup() {
+  Serial.begin(9600);
+
+  //initialise the LCD
+  lcd.init();
+  lcd.clear();
+  lcd.backlight();
+
+  //initialise temp subroutine
+  mlx.begin();
+
+  //Setup for the radio
+  radio.begin();
+  radio.openWritingPipe(addresses[0]);          // 00001
+  radio.openReadingPipe(1, addresses[1]);       // 00002
+  radio.setPALevel(RF24_PA_MAX);                // power level
+  radio.setDataRate(RF24_250KBPS);              // data rate
+  radio.setAutoAck(true);                       // ACK FEATURE
+  radio.setRetries(15, 15);                     // 4000usx15=0.06s
+  radio.setChannel(115);                        // 2400MHz + channel no(MHz)
+
+  //Servos - attach servo objects to pins
+  servo1.attach(G1);
+  servo2.attach(G2);
+  servoLock.attach(lock);
+
+  //USS and Pump
+  pinMode(echoPin, INPUT);
+  pinMode(trigPin, OUTPUT);
+  pinMode(pump, OUTPUT);
+  pinMode(level, OUTPUT);
+  pinMode(push, INPUT);
+
+  //LEDs and BUZZER declared as outputs
+  pinMode(redLED, OUTPUT);
+  pinMode(greenLED, OUTPUT);
+  pinMode(buzzer, OUTPUT);
+
+  //pir setup AND VARIABLES
+  pinMode(pirPin, INPUT);
+  digitalRead(pirPin);                             //PIR warm up
+  servo2.write(180);                               //gate 2 closed state
+  servo1.write(0);                                 //gate 1 closed state
+  delay(4000);
+  servoLock.write(0);                              //Lock closed state
+
+}
+//**********************************************************************************
+void loop() {
+  switch (slaveState)
+  {
+    case 1:
+      Serial.println("entered in  case 1");
+
+      radio.stopListening();
+
+      if (temp_val == 0)
+      {
+        Serial.println(" In State 1");              //user instruction
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Place hand under");
+        lcd.setCursor(0, 1);
+        lcd.print("sensor");
+      }
+
+      while (temp_val == 0)
+      {
+
+        gap = SonicReader();                         // check users hand in range
+        Serial.println("gap measured: ");
+        Serial.print(gap);
+        Serial.print(" cm");
+
+        if ((gap >= 20) && (gap <= 25))
+        {
+          temp_val = mlx.readObjectTempC();           //float type
+          degreeCelPack.rawVal = (temp_val * 100) ;   //int type
+          Serial.print("temperature is: ");
+          Serial.print(degreeCelPack.rawVal / 100);
+          Serial.println(" °C");
+          Serial.println("Sanitizer pump High");
+
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print(temp_val);
+          lcd.setCursor(4, 0);
+          lcd.print(char(223));
+          lcd.setCursor(5, 0);
+          lcd.print("Celsius");
+
+          lcd.setCursor(0, 1);
+          lcd.print("sanitize");
+          delay(4000);
+          sanitize();                                 //dispense santizer
+
+        }
+
+        while (temp_val != 0 )
+        {
+          lcd.clear();                                //user instruction to remove hand
+          lcd.print("REMOVE HAND");
+          delay(2000);
+          Serial.println("remove hand");
+          radio.stopListening();
+          if (radio.write(&degreeCelPack.rawVal, sizeof(degreeCelPack.rawVal)))
+          {
+            Serial.println("temperature message sent ");
+            slaveState = 2;
+            Serial.println("leaving state 1");
+            break;
+          }
+        }
+      }
+    //***************************************************************************
+    case 2:
+
+      Serial.println("entering case 2");
+
+      radio.startListening();
+      while (!radio.available())
+      {
+        Serial.println("waiting for gate  message instrution data ");
+      }
+      if (radio.available())
+      {
+        while (radio.available())
+        {
+          radio.read(&GatePack, sizeof(GatePack));
+          AutoG1_buf = GatePack.gate1;
+          AutoG2_buf = GatePack.gate2;
+
+          if ((AutoG1_buf == HIGH) || (AutoG2_buf == HIGH))
+          {
+            if (AutoG1_buf == HIGH)
+            {
+              Serial.println(" unlock ");
+              servoLock_open();
+              delay(100);
+              Serial.println(" open Gate 1 ");
+              servo1_open();
+              Serial.println(" Turn on green LED Alert");
+              digitalWrite(greenLED, HIGH);
+
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              lcd.print("Proceed to ");
+              lcd.setCursor(0, 1);
+              lcd.print("Workplace");
+            }
+
+            if (AutoG2_buf == HIGH)
+            {
+              Serial.println("open Gate 2");
+              servo2_open();
+              Serial.println(" turn on red LED alert");
+              Serial.println(" turn on buzzer alert ");
+              digitalWrite(redLED, HIGH);
+              tone(buzzer, 1000);
+
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              lcd.print("Proceed to ");
+              lcd.setCursor(0, 1);
+              lcd.print("Quarantine");
+            }
+            slaveState = 3;
+            Serial.println("Leaving case 2");
+            break;
+          }
+
+        }
+      }
+    //**************************************************************************
+    case 3:
+      Serial.println("Entered Case 3");
+      Serial.println("state is");
+      Serial.println(digitalRead(pirPin));
+      if ((digitalRead(pirPin)) == 0)
+      {
+        slaveState = 3;
+        break;
+      }
+
+      while ((digitalRead(pirPin)) == HIGH)
+      {
+        pirState = HIGH;
+        while (pirState == HIGH)
+        {
+          Serial.println("motion sensed");
+
+          if (digitalRead(pirPin) == LOW)
+          {
+            Serial.println("_______________________");
+            Serial.println("        no motion      ");
+            Serial.println("_______________________");
+
+            if (AutoG1_buf == HIGH)             //gate 1 is open and needs to close
+            {
+              Serial.println("close Gate 1");
+              Serial.print("LED OFF and buzzer OFF");
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              lcd.print("Closing ");
+              lcd.setCursor(0, 1);
+              lcd.print("Gate 1");
+
+              servo1_close();
+              delay(100);
+              servoLock_close();
+              AlertsOFF();
+              slaveState = 4;
+              Serial.println("Leaving case 3");
+              break;
+            }
+
+            if (AutoG2_buf == HIGH)               //gate 2 is open and needs to close
+            {
+              Serial.println("close Gate 2");
+              Serial.println("turn LED and buzzer OFF");
+              lcd.clear();
+              lcd.setCursor(0, 0);
+              lcd.print("Closing");
+              lcd.setCursor(0, 1);
+              lcd.print("Gate 2");
+
+              servo2_close();
+              AlertsOFF();
+              slaveState = 4;
+              Serial.println("Leaving case 3");
+              break;
+            }
+          }
+        }
+      }
+      pirState = 0;
+      break;
+    //**************************************************************************
+    case 4 :
+      //System reset;
+      Serial.println("Entered case 4");
+      systemCheck = HIGH;
+      radio.stopListening();
+      if (radio.write(&systemCheck, sizeof(systemCheck)))
+      {
+        Serial.print("reset key data sent ");
+        AlertsOFF();
+        SystemReset();                              //Reset variables
+        Serial.println("system Reset______");
+        break;
+      }
+
+    //****************************************************************************
+    default:
+      //manual mode checks info struct to see what to do with doors
+      //**************************************************************************
+      if (digitalRead(push) == HIGH)
+      {
+        digitalWrite(level, HIGH);
+        lcd.clear();
+        lcd.setCursor(0, 0);
+        lcd.print("Reading");
+        lcd.setCursor(0, 1);
+        lcd.print("Tank Level");
+      }
+
+      if (digitalRead(push) == LOW)
+      {
+        digitalWrite(level, LOW);
+      }
+      //**************************************************************************
+
+      radio.startListening();                                   // Rx mode
+      while (!radio.available())
+      {
+        Serial.println("Waiting for switch data from control centre");
+      }
+      if (radio.available())
+      {
+        Serial.println("Data Incoming");
+        while (radio.available())
+        {
+          while (!radio.available());
+          radio.read(&ButtonPack, sizeof(ButtonPack));           // receive switch data
+          Serial.println("data recieved");
+          Serial.println("mode output");
+          Serial.print("mode state: ");
+          Serial.println(ButtonPack.moO_state);
+          Serial.print("manual gate1 state : ");
+          Serial.println(ButtonPack.mo1_state);
+          Serial.print("manual gate 2 state: ");
+          Serial.println(ButtonPack.mo2_state);
+
+          gate_mode_AM = ButtonPack.moO_state;
+          gate_state_1 = ButtonPack.mo1_state;
+          gate_state_2 = ButtonPack.mo2_state;
+
+          if (gate_mode_AM == HIGH)
+          {
+            if ((gate_state_1 == LOW) && (gate_state_2 == LOW))
+            {
+              Serial.println("leaving default State");
+              slaveState = 1;
+              break;
+            }
+          }
+
+          if (gate_mode_AM == LOW)                               // manual mode
+          {
+            Serial.println("Manual MODE");
+            Serial.println(gate_state_1);
+            Serial.println(gate_state_2);
+
+            if (gate_state_1 != LastgateOne)                     //only enters when switch one is different
+            {
+              if (gate_state_1 == LOW)                           // close gate 1
+              {
+                digitalWrite(greenLED, LOW);
+                Serial.println("close gate 1");
+                servo1_close();
+                delay(100);
+                Serial.println("LOCK");
+                servoLock_close();
+                LastgateOne = LOW;
+              }
+              if (gate_state_1 == HIGH)                         //open gate 1
+              {
+                digitalWrite(greenLED, HIGH);
+                Serial.println("open lock");
+                servoLock_open();
+                Serial.println("open Gate 1");
+                servo1_open();
+                LastgateOne = HIGH;
+              }
+            }
+
+            if (gate_state_2 != LastgateTwo)                    //only enters when switch 2 is different
+            {
+              if (gate_state_2 == LOW)                          // close gate 2
+              {
+                digitalWrite(redLED, LOW);
+                Serial.println("close gate 2");
+                servo2_close();
+                LastgateTwo = LOW;
+              }
+
+              if (gate_state_2 == HIGH)                          // open gate 2
+              {
+                digitalWrite(redLED, HIGH);
+                Serial.println("open gate 2");
+                servo2_open();
+                LastgateTwo = HIGH;
+              }
+            }
+            break;
+          }
+
+        }
+      }
+
+
+  }
+
+}
+
+float SonicReader()  //Read Ultrasonic Sensor
+{
+  digitalWrite(trigPin, LOW);             // Clears the trigPin condition
+  delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH);            //Sets trigPin HIGH for 10 microseconds
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  duration = pulseIn(echoPin, HIGH);      //Reads the echoPin, returns the sound wave travel time
+  distance = duration * 0.034 / 2;        //Speed of sound wave divided by 2 (go and back)
+  //Serial.print("Distance: ");             //Display the distance on the Serial Monitor
+  //Serial.print(distance);
+  //Serial.println(" cm");
+
+  return distance;
+}
+
+
+void sanitize()
+{
+  digitalWrite(pump, HIGH);          // if present motor operates for some time, dispenses sanitizer
+  delay(400);                             // operating time
+  digitalWrite(pump, LOW);           // pump stops working for some time
+  delay(1000);                            // delay prevents continuous operation
+}
+
+void AlertsOFF()
+{
+  digitalWrite(greenLED, LOW);
+  digitalWrite(redLED, LOW);
+  noTone(buzzer);
+}
+
+void SystemReset()
+{
+  slaveState = 0;
+  AutoG1_buf = 0;
+  AutoG2_buf = 0;
+  temp_val = 0;
+  //AutoManDetector = 1;
+
+  GatePack.gate1 = 0;
+  GatePack.gate2 = 0;
+  pirState = LOW;
+  systemCheck = 0;
+
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//servo gate OPEN and CLOSE functions and servo lock functions
+
+void servo1_open()      //Open servo 1, control speed
+{
+  for (pos = 0; pos <= 110; pos += 1) //0 to 90 degrees in steps of 5 degrees
+  {
+    servo1.write(pos);  //servo moves to angle 'pos' to open gate gradually
+    delay(15);     //15ms delay between steps
+    Serial.print("Servo1 position: ");
+    Serial.print(pos);
+    Serial.println("°");
+  }
+}
+
+void servo2_open()      //Open servo 2, control speed
+{
+  for (pos = 180; pos >= 90; pos -= 1)  //0 to 90 degrees in steps of 5 degrees
+  {
+    servo2.write(pos);                //servo moves to angle 'pos' to open gate gradually
+    delay(15);                        //15ms delay between steps
+    Serial.print("Servo2 position: ");
+    Serial.print(pos);
+    Serial.println("°");
+  }
+}
+
+void servo1_close()
+{
+  for (pos = 110; pos >= 0; pos -= 1) { // 90 degrees to 0 degrees, step size 10 degrees
+    servo1.write(pos);              // servo goes to position in variable 'pos'
+    delay(15);                       // waits 200ms for the servo to reach the position
+  }
+}
+
+void servo2_close()
+{
+  for (pos = 90; pos <= 180 ; pos += 1) { // 90 degrees to 0 degrees, step size 10 degrees
+    servo2.write(pos);              // servo goes to position in variable 'pos'
+    delay(15);                       // waits 200ms for the servo to reach the position
+  }
+}
+
+void servoLock_open()
+{
+  for (angle = 0; angle <= 90; angle += 10)
+  {
+    servoLock.write(angle);
+    Serial.println(angle);
+    delay(15);
+  }
+
+  delay(500);
+  Serial.println("Latch open");
+}
+
+void servoLock_close()
+{
+  for (angle = 90; angle >= 0; angle -= 10)
+  {
+    servoLock.write(angle);
+    Serial.println(angle);
+    delay(15);
+  }
+
+  Serial.println("Latch closed");
+}
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
