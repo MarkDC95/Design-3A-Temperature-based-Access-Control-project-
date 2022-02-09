@@ -1,0 +1,356 @@
+#include <SPI.h>                        //SPI communications 
+#include <nRF24L01.h>                   //Functions for nrf24 library
+#include <RF24.h>                       //Networking library
+#include <printf.h>
+
+#include <LiquidCrystal_I2C.h>            //LCD I2C library
+#include <Wire.h>                         //I2C for LCD 
+
+//Definitions of pins
+//radio pins
+#define CE       48
+#define CSN      49
+
+//Sound and Light Alerts
+#define R_LED   40
+#define G_LED   38
+#define Buzz     9
+
+//Control buttons
+#define mode_SW   2                   //automatic or manual
+#define G1_mo     3                   //manual overide gate 1 open
+#define G2_mo     4                   //manual overide gate 2 open
+
+
+//LCD class int
+LiquidCrystal_I2C lcd(0x27, 16, 2);           //I2C address, columns,rows
+
+//RF radio instantiation
+RF24 radio(CE, CSN);                          //CE,CSN
+
+// Node addresses
+const byte addresses[][6] = {"00001", "00002"};
+
+typedef struct
+{
+  int moO_state = 0;
+  int mo1_state = 0;
+  int mo2_state = 0;
+}
+Packet;
+
+Packet ButtonPack;
+
+typedef struct
+{
+  int gate1 = 0;
+  int gate2 = 0;
+}
+AutoGatePack;
+
+AutoGatePack GatePack;
+
+typedef struct
+{
+  int rawVal = 0;
+}
+TempPack;
+TempPack degreeCelPack;
+
+//Store temperature reading
+float temp_buf = 0;
+
+int controlState = 0;
+
+int systemCheck = 0;
+int ResetCheck = 0;
+
+void setup() {
+  Serial.begin(9600);
+  //control centre buttons
+  pinMode(mode_SW, INPUT);
+  pinMode(G1_mo, INPUT);
+  pinMode(G2_mo, INPUT);
+
+  //LEDS
+
+  pinMode(G_LED, OUTPUT);
+  pinMode(R_LED, OUTPUT);
+
+
+  //initialise the Lcd
+  lcd.init();
+  lcd.clear();
+  lcd.backlight();
+
+  //Setup for the radio
+  radio.begin();
+  radio.openWritingPipe(addresses[1]);        // 00002
+  radio.openReadingPipe(1, addresses[0]);     // pipe 4 00001
+  radio.setPALevel(RF24_PA_MAX);              //Power level
+  radio.setDataRate(RF24_250KBPS);            //Data rate
+  radio.setAutoAck(true);                     //Allow ack protocol
+  radio.setRetries(15, 15);                   //400usx15=0.06s
+  radio.setChannel(115);                      //2400MHz + channel no
+
+}
+
+void loop() {
+  switch (controlState)
+  {
+    case 1:
+      Serial.println("In state 1 of the control centre");
+      radio.startListening();
+      while (!radio.available())
+      {
+        Serial.println("Waiting for temperature data");
+      }
+      radio.read(&degreeCelPack.rawVal, sizeof(degreeCelPack.rawVal));
+      temp_buf = (degreeCelPack.rawVal / 10);
+      Serial.println("begin processing temperature data of :");
+      Serial.println(temp_buf);
+      Serial.print("°C");
+
+
+      if (temp_buf != 0)
+      {
+        if (((temp_buf >= 32) && (temp_buf <= 37.5)))               //normal range
+        {
+          Serial.println("Temperature in range");
+          GatePack.gate1 = HIGH;
+          controlState = 2;
+          Serial.println("Leaving case 1 of control centre");
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print(temp_buf);
+          lcd.setCursor(4, 0);
+          lcd.print(char(223));
+          lcd.setCursor(5, 0);
+          lcd.print("Celsius");
+          lcd.setCursor(0, 1);
+          lcd.print("Process result");
+          delay(2000);
+          break;
+        }
+
+        if (((temp_buf < 32) || (temp_buf > 37.5)))                 //quarantine range
+        {
+          Serial.println("Temperature out of range");
+          GatePack.gate2 = HIGH;
+          controlState = 2;
+          Serial.println("Leaving case 1 of control centre");
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print(temp_buf);
+          lcd.setCursor(4, 0);
+          lcd.print(char(223));
+          lcd.setCursor(5, 0);
+          lcd.print("Celsius");
+          lcd.setCursor(0, 1);
+          lcd.print("Process result");
+          delay(2000);
+          break;
+        }
+      }
+
+    //**************************************************************************
+    case 2:
+      Serial.println("Entered case 2 of control centre");
+      radio.stopListening();
+      if (radio.write(&GatePack, sizeof(GatePack)))
+      {
+        Serial.println("Sending gate instruction");
+        if (GatePack.gate1 == HIGH)
+        {
+          Serial.println("Gate 1 is HIGH and Gate 2 is LOW");
+          Serial.println("Access Granted ");
+          digitalWrite(G_LED, HIGH);
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("Status:");
+          lcd.setCursor(0, 1);
+          lcd.print("Access Granted");
+          controlState = 3 ;
+          Serial.println("Leaving Case 2");
+          break;
+        }
+
+        if (GatePack.gate2 == HIGH)
+        {
+          Serial.println("Gate 1 is LOW and Gate 2 is HIGH");
+          Serial.println("Access Denied ");
+          digitalWrite(R_LED, HIGH);
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("Status:");
+          lcd.setCursor(0, 1);
+          lcd.print("Access Denied");
+          //tone(Buzz, 1000);
+          controlState = 3 ;
+          Serial.println("Leaving Case 2");
+          break;
+        }
+      }
+
+    //**************************************************************************
+    case 3:
+
+      Serial.println("Entered case 3");
+      radio.startListening();
+      Serial.println("Checking for radio in a case 3");
+      while (!radio.available())
+      {
+        Serial.println("Waiting for pir state messasge");
+      }
+      if (radio.available())
+      {
+        radio.read(&systemCheck, sizeof(systemCheck));
+        ResetCheck = systemCheck;
+        delay(5030);
+        Serial.print("Reset mode :");
+        Serial.println(ResetCheck);
+
+        if (ResetCheck == HIGH)
+        {
+          Serial.println("Door closed and Alerts OFF");
+          AlertsOFF();
+          Serial.println("run reset function");
+          SystemReset();
+          Serial.println("reseting in 10 seconds");
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("Status:");
+          lcd.setCursor(0, 1);
+          lcd.print("Process Complete");
+          delay(5000);
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("switch to ");
+          lcd.setCursor(0, 1);
+          lcd.print("change to manual?");
+          delay(5000);
+          Serial.println("leaving to state 3");
+          Serial.println("SYSTEM RESET _____________________");
+          break;
+        }
+
+      }
+    //**************************************************************************
+    default:
+      Serial.println("mode: ");
+      Serial.println(digitalRead(mode_SW));
+      Serial.print("Gate 1 State: ");
+      Serial.println(digitalRead(G1_mo));
+      Serial.print("Gate 2 state: ");
+      Serial.println(digitalRead(G2_mo));
+
+      ButtonPack.moO_state = digitalRead(mode_SW);    //Assign input values to buffer
+      ButtonPack.mo1_state = digitalRead(G1_mo);
+      ButtonPack.mo2_state = digitalRead(G2_mo);
+
+      radio.stopListening();                          // tx Mode
+      radio.write(&ButtonPack, sizeof(ButtonPack));   // send switch data
+      if (digitalRead(mode_SW) == LOW)                // manual mode
+      {
+        Serial.println("manual mode");
+        lcd.print("MODE: MANUAL");
+        if ( ButtonPack.mo1_state == LOW)
+        {
+          digitalWrite(G_LED, LOW);
+        }
+
+        if ( ButtonPack.mo1_state == HIGH)
+        {
+          digitalWrite(G_LED, HIGH);
+          if (ButtonPack.mo2_state == LOW)
+          {
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("Door Status :");
+            lcd.setCursor(0, 1);
+            lcd.print("Gate 1 opened");
+            delay(1000);
+          }
+
+        }
+        if ( ButtonPack.mo2_state == LOW)
+        {
+          digitalWrite(R_LED, LOW);
+        }
+
+        if ( ButtonPack.mo2_state == HIGH)
+        {
+          digitalWrite(R_LED, HIGH);
+          if (ButtonPack.mo1_state == LOW)
+          {
+            lcd.clear();
+            lcd.setCursor(0, 0);
+            lcd.print("Door Status :");
+            lcd.setCursor(0, 1);
+            lcd.print("Gate 2 opened");
+            delay(1000);
+          }
+
+        }
+
+        if ( (ButtonPack.mo1_state == HIGH) && (ButtonPack.mo2_state == HIGH))
+        {
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("Door Status :");
+          lcd.setCursor(0, 1);
+          lcd.print("Gate 1&2 opened");
+          delay(1000);
+        }
+        if ( (ButtonPack.mo1_state == LOW) && (ButtonPack.mo2_state == LOW))
+        {
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("MODE: MANUAL");
+          lcd.setCursor(0, 1);
+          lcd.print("                ");
+          delay(1000);
+        }
+      }
+
+      if (digitalRead(mode_SW) == HIGH)          // automatic mode
+      {
+        if ((digitalRead(G1_mo) == LOW) && (digitalRead(G2_mo) == LOW))       //both gates closed
+        {
+          lcd.clear();
+          lcd.setCursor(0, 0);
+          lcd.print("MODE: AUTOMATIC");
+          Serial.println("automatic mode enabled ");
+          delay(1000);
+          controlState = 1;                       // sets master state to case 1
+          break;
+        }
+      }
+  }
+
+}
+void AlertsOFF()
+{
+  digitalWrite(G_LED, LOW);
+  digitalWrite(R_LED, LOW);
+  noTone(Buzz);
+}
+
+void SystemReset()
+{
+
+  ButtonPack.moO_state = 0;
+  ButtonPack.mo1_state = 0;
+  ButtonPack.mo2_state = 0;
+
+  GatePack.gate1 = 0;
+  GatePack.gate1 = 0;
+
+  degreeCelPack.rawVal = 0;
+  temp_buf = 0;
+  controlState = 0;
+
+  GatePack.gate1 = 0;
+  GatePack.gate2 = 0;
+  systemCheck = 0;
+}
