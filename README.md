@@ -18,3 +18,6 @@ It was within my responsibilities for the project for the overall design, and fu
 
 ## System Flow Chart to show the design process of the Sensor Station(Slave MCU)
 <img src = "https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/blob/main/Blank%20diagram.png" float="centre" width="1080" />
+
+Table showing state changes during each stage of the process
+<img src = "https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/blob/main/Picture1.png" float="centre" width="1080" />
