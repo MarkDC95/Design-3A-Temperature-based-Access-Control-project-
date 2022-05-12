@@ -12,7 +12,7 @@
 
 5. [Table showing state changes](https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/edit/main/README.md#table-showing-state-changes-during-each-stage-of-the-process)
 
-6. [Circuuit Schematics](https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/edit/main/README.md#circuit-schematics)
+6. [Circuit Schematics](https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-/edit/main/README.md#circuit-schematics)
 
 7. [Simplified RF communication process](https://github.com/MarkDC95/Design-3A-Temperature-based-Access-Control-project-#simplified-rf-communication-process)
 
